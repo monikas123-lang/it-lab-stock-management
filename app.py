@@ -119,14 +119,23 @@ def main_app():
     st.title("🧾 IT Lab Stock Management System")
     st.caption(f"{now_str()} | {st.session_state.username} ({st.session_state.role})")
 
+    # ---------- LOW STOCK ALERT ----------
+    df_systems = pd.read_sql("SELECT * FROM systems", conn)
+    low_stock = df_systems[df_systems["quantity"] <= 5]  # Threshold 5
+    if not low_stock.empty:
+        st.sidebar.markdown("### ⚠️ Low Stock Items")
+        for _, row in low_stock.iterrows():
+            st.sidebar.write(f"{row['name']} - Qty: {row['quantity']}")
+
     if st.sidebar.button("🚪 Logout"):
         st.session_state.logged_in = False
         st.session_state.role = None
         st.session_state.username = None
         st.rerun()
-
+    
     role = st.session_state.role
 
+    # ---------------- MENU ----------------
     if role == "Admin":
         menu = [
             "Register of Items",
