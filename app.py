@@ -115,6 +115,18 @@ def login():
 
 # ---------------- MAIN APP ----------------
 def main_app():
+
+    # 🔴 BLINK CSS
+    st.markdown("""
+    <style>
+    @keyframes blink {
+      0% { background-color: #ff4d4d; }
+      50% { background-color: #ffffff; }
+      100% { background-color: #ff4d4d; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.title("🧾 IT Lab Stock Management System")
     st.caption(f"{now_str()} | {st.session_state.username} ({st.session_state.role})")
 
@@ -160,14 +172,11 @@ def main_app():
         col1.metric("Total Items", len(df))
         col2.metric("Total Quantity", int(df["quantity"].sum()) if not df.empty else 0)
         col3.metric("Total Added", log[log.action=="ADD"]["quantity"].sum())
-        col4.metric(
-            "Last Update",
-            log.iloc[-1]["date_time"] if not log.empty else "-"
-        )
+        col4.metric("Last Update", log.iloc[-1]["date_time"] if not log.empty else "-")
 
         def style_row(row):
             if row["quantity"] <= 2:
-                return ["background-color:#ff4d4d;color:white;font-weight:bold"] * len(row)
+                return ["animation: blink 1s infinite; font-weight:bold"] * len(row)
             if row["status"] == "Not Working":
                 return ["background-color:#ffcccc"] * len(row)
             if row["quality"] == "Poor":
@@ -202,7 +211,7 @@ def main_app():
                 (sys_no, name, qty, quality, status)
             )
             c.execute(
-                "INSERT INTO activity_log(action, system_no, quantity, date_time) VALUES (?,?,?,?)",
+                "INSERT INTO activity_log VALUES (NULL,?,?,?,?)",
                 ("ADD", sys_no, qty, now_str())
             )
             conn.commit()
@@ -242,7 +251,7 @@ def main_app():
         if st.button("Delete"):
             c.execute("DELETE FROM systems WHERE system_no=?", (sys_no,))
             c.execute(
-                "INSERT INTO activity_log(action, system_no, quantity, date_time) VALUES (?,?,?,?)",
+                "INSERT INTO activity_log VALUES (NULL,?,?,?,?)",
                 ("DELETE", sys_no, 0, now_str())
             )
             conn.commit()
@@ -259,8 +268,7 @@ def main_app():
         if st.button("Submit"):
             c.execute("""
                 INSERT INTO complaints
-                (raised_by, role, title, description, status, date_time)
-                VALUES (?,?,?,?,?,?)
+                VALUES (NULL,?,?,?,?,?,?)
             """, (st.session_state.username, role, title, desc, "Open", now_str()))
             conn.commit()
             st.success("Complaint submitted")
@@ -286,8 +294,7 @@ def main_app():
                     name = df[df.system_no==sys_no].iloc[0]["name"]
                     c.execute("""
                         INSERT INTO dead_stock
-                        (system_no, name, reason, accepted_by, date_time)
-                        VALUES (?,?,?,?,?)
+                        VALUES (NULL,?,?,?,?,?)
                     """, (sys_no, name, reason, st.session_state.username, now_str()))
                     c.execute("DELETE FROM systems WHERE system_no=?", (sys_no,))
                     conn.commit()
