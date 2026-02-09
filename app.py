@@ -65,6 +65,15 @@ CREATE TABLE IF NOT EXISTS activity_log (
 
 conn.commit()
 
+# ---------------- HELPERS ----------------
+def now_str():
+    return datetime.now().strftime("%d-%m-%Y %I:%M %p")
+
+def next_system_no():
+    c.execute("SELECT MAX(system_no) FROM systems")
+    m = c.fetchone()[0]
+    return 2000 if m is None else m + 1
+
 # ---------------- DEFAULT USERS ----------------
 c.execute("SELECT COUNT(*) FROM users")
 if c.fetchone()[0] == 0:
@@ -75,15 +84,6 @@ if c.fetchone()[0] == 0:
     ]
     c.executemany("INSERT INTO users VALUES (?,?,?)", users)
     conn.commit()
-
-# ---------------- HELPERS ----------------
-def now_str():
-    return datetime.now().strftime("%d-%m-%Y %I:%M %p")
-
-def next_system_no():
-    c.execute("SELECT MAX(system_no) FROM systems")
-    m = c.fetchone()[0]
-    return 2000 if m is None else m + 1
 
 # ---------------- SESSION ----------------
 if "logged_in" not in st.session_state:
@@ -149,40 +149,25 @@ def main_app():
     if choice == "Register of Items":
         st.subheader("📒 Register of Items")
 
-        df = pd.read_sql(
-            "SELECT * FROM systems WHERE quantity > 0 ORDER BY system_no",
-            conn
-        )
-
+        df = pd.read_sql("SELECT * FROM systems ORDER BY system_no", conn)
         log = pd.read_sql("SELECT * FROM activity_log", conn)
 
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Total Items", len(df))
         col2.metric("Total Quantity", int(df["quantity"].sum()) if not df.empty else 0)
-        col3.metric("Total Added", log[log.action=="ADD"]["quantity"].sum())
-        col4.metric(
-            "Last Update",
-            log.iloc[-1]["date_time"] if not log.empty else "-"
-        )
+        col3.metric("Total Added", log[log.action == "ADD"]["quantity"].sum() if not log.empty else 0)
+        col4.metric("Last Update", log.iloc[-1]["date_time"] if not log.empty else "-")
 
         def style_row(row):
             if row["quantity"] <= 2:
-                return ["background-color:#ff4d4d;color:white;font-weight:bold"] * len(row)
+                return ["background-color:#ff4d4d;color:white"] * len(row)
             if row["status"] == "Not Working":
-                return ["background-color:#ffcccc"] * len(row)
+                return ["background-color:#ffd6d6"] * len(row)
             if row["quality"] == "Poor":
                 return ["background-color:#fff2cc"] * len(row)
             return [""] * len(row)
 
-        st.dataframe(
-            df.style.apply(style_row, axis=1),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.subheader("🕒 Activity History")
-        hist = pd.read_sql("SELECT * FROM activity_log ORDER BY id DESC", conn)
-        st.dataframe(hist, use_container_width=True, hide_index=True)
+        st.dataframe(df.style.apply(style_row, axis=1), use_container_width=True, hide_index=True)
 
     # ---------- ADD ----------
     elif choice == "Add Item":
@@ -197,17 +182,20 @@ def main_app():
         status = st.selectbox("Status", ["Working", "Not Working"])
 
         if st.button("Add"):
-            c.execute(
-                "INSERT INTO systems VALUES (?,?,?,?,?)",
-                (sys_no, name, qty, quality, status)
-            )
-            c.execute(
-                "INSERT INTO activity_log(action, system_no, quantity, date_time) VALUES (?,?,?,?)",
-                ("ADD", sys_no, qty, now_str())
-            )
-            conn.commit()
-            st.success("Item added")
-            st.rerun()
+            try:
+                c.execute(
+                    "INSERT INTO systems VALUES (?,?,?,?,?)",
+                    (sys_no, name, qty, quality, status)
+                )
+                c.execute(
+                    "INSERT INTO activity_log(action, system_no, quantity, date_time) VALUES (?,?,?,?)",
+                    ("ADD", sys_no, qty, now_str())
+                )
+                conn.commit()
+                st.success("Item added successfully")
+                st.rerun()
+            except sqlite3.IntegrityError:
+                st.error("❌ Item name already exists. Use Update Item.")
 
     # ---------- UPDATE ----------
     elif choice == "Update Item":
@@ -220,7 +208,7 @@ def main_app():
         if r:
             name = st.text_input("Item Name", r[1])
             qty = st.number_input("Quantity", min_value=0, value=r[2])
-            quality = st.selectbox("Quality", ["Good","Average","Poor"], index=["Good","Average","Poor"].index(r[3]))
+            quality = st.selectbox("Quality", ["Good", "Average", "Poor"], index=["Good","Average","Poor"].index(r[3]))
             status = st.selectbox("Status", ["Working","Not Working"], index=0 if r[4]=="Working" else 1)
 
             if st.button("Update"):
@@ -229,7 +217,7 @@ def main_app():
                     (name, qty, quality, status, sys_no)
                 )
                 conn.commit()
-                st.success("Updated")
+                st.success("Item updated")
                 st.rerun()
         else:
             st.info("Item not found")
@@ -246,7 +234,7 @@ def main_app():
                 ("DELETE", sys_no, 0, now_str())
             )
             conn.commit()
-            st.success("Deleted")
+            st.success("Item deleted")
             st.rerun()
 
     # ---------- COMPLAINT ----------
@@ -283,7 +271,7 @@ def main_app():
                 if role != "HOD":
                     st.error("Only HOD allowed")
                 else:
-                    name = df[df.system_no==sys_no].iloc[0]["name"]
+                    name = df[df.system_no == sys_no].iloc[0]["name"]
                     c.execute("""
                         INSERT INTO dead_stock
                         (system_no, name, reason, accepted_by, date_time)
@@ -322,17 +310,18 @@ def main_app():
         file = st.file_uploader("Upload Excel", type=["xlsx"])
         if file:
             df = pd.read_excel(file)
-            df.to_sql("systems", conn, if_exists="replace", index=False)
-            st.success("Uploaded")
+            df.drop_duplicates(subset=["name"], inplace=True)
+            df.to_sql("systems", conn, if_exists="append", index=False)
+            st.success("Excel uploaded")
             st.rerun()
 
         df = pd.read_sql("SELECT * FROM systems", conn)
         df.to_excel("inventory.xlsx", index=False)
-        with open("inventory.xlsx","rb") as f:
+        with open("inventory.xlsx", "rb") as f:
             st.download_button("Download Excel", f, "inventory.xlsx")
 
 # ---------------- RUN ----------------
 if not st.session_state.logged_in:
     login()
 else:
-    main_app()
+    main_app()                    
