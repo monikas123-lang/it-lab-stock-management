@@ -208,8 +208,10 @@ def main_app():
         if r:
             name = st.text_input("Item Name", r[1])
             qty = st.number_input("Quantity", min_value=0, value=r[2])
-            quality = st.selectbox("Quality", ["Good", "Average", "Poor"], index=["Good","Average","Poor"].index(r[3]))
-            status = st.selectbox("Status", ["Working","Not Working"], index=0 if r[4]=="Working" else 1)
+            quality = st.selectbox("Quality", ["Good", "Average", "Poor"],
+                                   index=["Good", "Average", "Poor"].index(r[3]))
+            status = st.selectbox("Status", ["Working", "Not Working"],
+                                   index=0 if r[4] == "Working" else 1)
 
             if st.button("Update"):
                 c.execute(
@@ -258,7 +260,7 @@ def main_app():
         df = pd.read_sql("SELECT * FROM complaints ORDER BY id DESC", conn)
         st.dataframe(df, use_container_width=True, hide_index=True)
 
-    # ---------- DEAD STOCK ----------
+    # ---------- DEAD STOCK (ADMIN ONLY) ----------
     elif choice == "Dead Stock":
         st.subheader("📦 Dead Stock")
 
@@ -268,8 +270,8 @@ def main_app():
             reason = st.text_input("Reason")
 
             if st.button("Move to Dead Stock"):
-                if role != "HOD":
-                    st.error("Only HOD allowed")
+                if role != "Admin":
+                    st.error("Only Admin allowed")
                 else:
                     name = df[df.system_no == sys_no].iloc[0]["name"]
                     c.execute("""
@@ -324,4 +326,4 @@ def main_app():
 if not st.session_state.logged_in:
     login()
 else:
-    main_app()                    
+    main_app()
