@@ -148,31 +148,12 @@ def main_app():
     # ---------- REGISTER ----------
     if choice == "Register of Items":
         st.subheader("📒 Register of Items")
-
         df = pd.read_sql("SELECT * FROM systems ORDER BY system_no", conn)
-        log = pd.read_sql("SELECT * FROM activity_log", conn)
-
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Items", len(df))
-        col2.metric("Total Quantity", int(df["quantity"].sum()) if not df.empty else 0)
-        col3.metric("Total Added", log[log.action == "ADD"]["quantity"].sum() if not log.empty else 0)
-        col4.metric("Last Update", log.iloc[-1]["date_time"] if not log.empty else "-")
-
-        def style_row(row):
-            if row["quantity"] <= 2:
-                return ["background-color:#ff4d4d;color:white"] * len(row)
-            if row["status"] == "Not Working":
-                return ["background-color:#ffd6d6"] * len(row)
-            if row["quality"] == "Poor":
-                return ["background-color:#fff2cc"] * len(row)
-            return [""] * len(row)
-
-        st.dataframe(df.style.apply(style_row, axis=1), use_container_width=True, hide_index=True)
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
     # ---------- ADD ----------
     elif choice == "Add Item":
         st.subheader("➕ Add Item")
-
         sys_no = next_system_no()
         st.info(f"System No: {sys_no}")
 
@@ -182,44 +163,36 @@ def main_app():
         status = st.selectbox("Status", ["Working", "Not Working"])
 
         if st.button("Add"):
-            try:
-                c.execute(
-                    "INSERT INTO systems VALUES (?,?,?,?,?)",
-                    (sys_no, name, qty, quality, status)
-                )
-                c.execute(
-                    "INSERT INTO activity_log(action, system_no, quantity, date_time) VALUES (?,?,?,?)",
-                    ("ADD", sys_no, qty, now_str())
-                )
-                conn.commit()
-                st.success("Item added successfully")
-                st.rerun()
-            except sqlite3.IntegrityError:
-                st.error("❌ Item name already exists. Use Update Item.")
+            c.execute("INSERT INTO systems VALUES (?,?,?,?,?)",
+                      (sys_no, name, qty, quality, status))
+            conn.commit()
+            st.success("Item added")
+            st.rerun()
 
     # ---------- UPDATE ----------
     elif choice == "Update Item":
         st.subheader("🛠️ Update Item")
-
         sys_no = st.number_input("System No", min_value=2000, step=1)
+
         c.execute("SELECT * FROM systems WHERE system_no=?", (sys_no,))
         r = c.fetchone()
 
         if r:
             name = st.text_input("Item Name", r[1])
             qty = st.number_input("Quantity", min_value=0, value=r[2])
-            quality = st.selectbox("Quality", ["Good", "Average", "Poor"],
-                                   index=["Good", "Average", "Poor"].index(r[3]))
-            status = st.selectbox("Status", ["Working", "Not Working"],
-                                   index=0 if r[4] == "Working" else 1)
+            quality = st.selectbox("Quality", ["Good","Average","Poor"],
+                                   index=["Good","Average","Poor"].index(r[3]))
+            status = st.selectbox("Status", ["Working","Not Working"],
+                                   index=0 if r[4]=="Working" else 1)
 
             if st.button("Update"):
-                c.execute(
-                    "UPDATE systems SET name=?, quantity=?, quality=?, status=? WHERE system_no=?",
-                    (name, qty, quality, status, sys_no)
-                )
+                c.execute("""
+                    UPDATE systems
+                    SET name=?, quantity=?, quality=?, status=?
+                    WHERE system_no=?
+                """, (name, qty, quality, status, sys_no))
                 conn.commit()
-                st.success("Item updated")
+                st.success("Updated")
                 st.rerun()
         else:
             st.info("Item not found")
@@ -227,22 +200,17 @@ def main_app():
     # ---------- DELETE ----------
     elif choice == "Delete Item":
         st.subheader("🗑️ Delete Item")
-
         sys_no = st.number_input("System No", min_value=2000, step=1)
+
         if st.button("Delete"):
             c.execute("DELETE FROM systems WHERE system_no=?", (sys_no,))
-            c.execute(
-                "INSERT INTO activity_log(action, system_no, quantity, date_time) VALUES (?,?,?,?)",
-                ("DELETE", sys_no, 0, now_str())
-            )
             conn.commit()
-            st.success("Item deleted")
+            st.success("Deleted")
             st.rerun()
 
     # ---------- COMPLAINT ----------
     elif choice == "Raise Complaint":
         st.subheader("📩 Raise Complaint")
-
         title = st.text_input("Title")
         desc = st.text_area("Description")
 
@@ -257,7 +225,7 @@ def main_app():
             st.rerun()
 
     elif choice == "Complaints":
-        df = pd.read_sql("SELECT * FROM complaints ORDER BY id DESC", conn)
+        df = pd.read_sql("SELECT * FROM complaints", conn)
         st.dataframe(df, use_container_width=True, hide_index=True)
 
     # ---------- DEAD STOCK (ADMIN ONLY) ----------
@@ -278,7 +246,8 @@ def main_app():
                         INSERT INTO dead_stock
                         (system_no, name, reason, accepted_by, date_time)
                         VALUES (?,?,?,?,?)
-                    """, (sys_no, name, reason, st.session_state.username, now_str()))
+                    """, (sys_no, name, reason,
+                          st.session_state.username, now_str()))
                     c.execute("DELETE FROM systems WHERE system_no=?", (sys_no,))
                     conn.commit()
                     st.success("Moved to Dead Stock")
@@ -289,19 +258,9 @@ def main_app():
 
     # ---------- REPORTS ----------
     elif choice == "Reports":
-        st.subheader("📊 Reports")
-
-        df = pd.read_sql("SELECT * FROM systems WHERE quantity > 0", conn)
+        df = pd.read_sql("SELECT * FROM systems", conn)
         if not df.empty:
             st.bar_chart(df.set_index("name")["quantity"])
-
-            fig, ax = plt.subplots()
-            ax.pie(
-                df["status"].value_counts(),
-                labels=df["status"].value_counts().index,
-                autopct="%1.1f%%"
-            )
-            st.pyplot(fig)
 
     # ---------- EXCEL ----------
     elif choice == "Excel Upload / Download":
@@ -312,9 +271,8 @@ def main_app():
         file = st.file_uploader("Upload Excel", type=["xlsx"])
         if file:
             df = pd.read_excel(file)
-            df.drop_duplicates(subset=["name"], inplace=True)
             df.to_sql("systems", conn, if_exists="append", index=False)
-            st.success("Excel uploaded")
+            st.success("Uploaded")
             st.rerun()
 
         df = pd.read_sql("SELECT * FROM systems", conn)
